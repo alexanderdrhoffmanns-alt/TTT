@@ -680,7 +680,7 @@ export default function TicTacToeLobby() {
               <div className="w-full h-px bg-slate-100 dark:bg-slate-800 my-2"></div>
               
               <div className="w-full flex flex-col gap-3">
-                {matchmakingSeconds >= 10 && (
+                {matchmakingSeconds >= 1 && (
                   <div className="flex flex-col gap-2 w-full animate-in slide-in-from-bottom-2 fade-in duration-300">
                     <p className="text-xs uppercase font-bold text-slate-500 tracking-wider text-center mb-1">Kein Spieler online? Fordere einen Bot heraus:</p>
                     <button
