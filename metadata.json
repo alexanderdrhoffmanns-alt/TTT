@@ -1,0 +1,6 @@
+{
+  "name": "TicTacToe Ranked",
+  "description": "Multiplayer TicTacToe with a rating system and global leaderboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

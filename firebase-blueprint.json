@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with rating.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "rating": { "type": "number", "description": "Elo rating" },
+        "gamesPlayed": { "type": "number" },
+        "wins": { "type": "number" },
+        "losses": { "type": "number" },
+        "draws": { "type": "number" },
+        "createdAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["uid", "displayName", "rating", "gamesPlayed", "wins", "losses", "draws", "createdAt"]
+    },
+    "Game": {
+      "title": "Game",
+      "description": "A TicTacToe game session.",
+      "type": "object",
+      "properties": {
+        "player1Id": { "type": "string" },
+        "player2Id": { "type": ["string", "null"] },
+        "board": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "turn": { "type": "string", "enum": ["X", "O"] },
+        "status": { "type": "string", "enum": ["waiting", "playing", "finished", "abandoned"] },
+        "winner": { "type": ["string", "null"], "enum": ["X", "O", "draw", null] },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["player1Id", "board", "turn", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and stats."
+    },
+    "/games/{gameId}": {
+      "schema": { "$ref": "#/entities/Game" },
+      "description": "Active and past games."
+    }
+  }
+}

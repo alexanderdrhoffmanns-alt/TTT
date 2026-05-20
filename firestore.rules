@@ -1,0 +1,651 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Catch-all default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() { return request.auth != null; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['uid', 'displayName', 'rating', 'gamesPlayed', 'wins', 'losses', 'draws', 'createdAt'])
+          && data.uid is string && data.uid == userId
+          && data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 50
+          && data.rating is number
+          && data.gamesPlayed is number
+          && data.wins is number
+          && data.losses is number
+          && data.draws is number
+          && (!('connect4_rating' in data) || data.connect4_rating is number)
+          && (!('connect4_gamesPlayed' in data) || data.connect4_gamesPlayed is number)
+          && (!('connect4_wins' in data) || data.connect4_wins is number)
+          && (!('connect4_losses' in data) || data.connect4_losses is number)
+          && (!('connect4_draws' in data) || data.connect4_draws is number)
+          && (!('dots_rating' in data) || data.dots_rating is number)
+          && (!('dots_gamesPlayed' in data) || data.dots_gamesPlayed is number)
+          && (!('dots_wins' in data) || data.dots_wins is number)
+          && (!('dots_losses' in data) || data.dots_losses is number)
+          && (!('dots_draws' in data) || data.dots_draws is number)
+          && (!('utictactoe_rating' in data) || data.utictactoe_rating is number)
+          && (!('utictactoe_gamesPlayed' in data) || data.utictactoe_gamesPlayed is number)
+          && (!('utictactoe_wins' in data) || data.utictactoe_wins is number)
+          && (!('utictactoe_losses' in data) || data.utictactoe_losses is number)
+          && (!('utictactoe_draws' in data) || data.utictactoe_draws is number)
+          && (!('racing_rating' in data) || data.racing_rating is number)
+          && (!('racing_gamesPlayed' in data) || data.racing_gamesPlayed is number)
+          && (!('racing_wins' in data) || data.racing_wins is number)
+          && (!('racing_losses' in data) || data.racing_losses is number)
+          && (!('racing_draws' in data) || data.racing_draws is number)
+          && (!('email' in data) || data.email is string)
+          && data.createdAt is timestamp;
+      }
+
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && (userId == request.auth.uid || userId.matches('^bot_.*'))
+        && isValidUser(incoming())
+        && (incoming().rating == 1000 || userId.matches('^bot_.*'))
+        && incoming().gamesPlayed == 0
+        && incoming().wins == 0
+        && incoming().losses == 0
+        && incoming().draws == 0
+        && incoming().createdAt == request.time;
+
+      allow update: if isSignedIn()
+        && (userId == request.auth.uid || userId.matches('^bot_.*'))
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'rating', 'gamesPlayed', 'wins', 'losses', 'draws', 'connect4_rating', 'connect4_gamesPlayed', 'connect4_wins', 'connect4_losses', 'connect4_draws', 'dots_rating', 'dots_gamesPlayed', 'dots_wins', 'dots_losses', 'dots_draws', 'utictactoe_rating', 'utictactoe_gamesPlayed', 'utictactoe_wins', 'utictactoe_losses', 'utictactoe_draws', 'racing_rating', 'racing_gamesPlayed', 'racing_wins', 'racing_losses', 'racing_draws', 'email'])
+        && (!('rating' in incoming().diff(existing()).affectedKeys()) || (
+             (incoming().rating - existing().rating) >= -100 && (incoming().rating - existing().rating) <= 100
+           ))
+        && (!('connect4_rating' in incoming().diff(existing()).affectedKeys()) || (
+             (incoming().connect4_rating - (('connect4_rating' in existing()) ? existing().connect4_rating : 1000)) >= -100 && 
+             (incoming().connect4_rating - (('connect4_rating' in existing()) ? existing().connect4_rating : 1000)) <= 100
+           ))
+        && (!('dots_rating' in incoming().diff(existing()).affectedKeys()) || (
+             (incoming().dots_rating - (('dots_rating' in existing()) ? existing().dots_rating : 1000)) >= -100 && 
+             (incoming().dots_rating - (('dots_rating' in existing()) ? existing().dots_rating : 1000)) <= 100
+           ))
+        && (!('utictactoe_rating' in incoming().diff(existing()).affectedKeys()) || (
+             (incoming().utictactoe_rating - (('utictactoe_rating' in existing()) ? existing().utictactoe_rating : 1000)) >= -100 && 
+             (incoming().utictactoe_rating - (('utictactoe_rating' in existing()) ? existing().utictactoe_rating : 1000)) <= 100
+           ))
+        && (!('racing_rating' in incoming().diff(existing()).affectedKeys()) || (
+             (incoming().racing_rating - (('racing_rating' in existing()) ? existing().racing_rating : 1000)) >= -100 && 
+             (incoming().racing_rating - (('racing_rating' in existing()) ? existing().racing_rating : 1000)) <= 100
+           ));
+
+      match /friends/{friendId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /games/{gameId} {
+      function isValidGame(data) {
+        return data.keys().hasAll(['player1Id', 'player2Id', 'board', 'turn', 'status', 'winner', 'createdAt', 'updatedAt'])
+          && data.player1Id is string
+          && (data.player2Id is string || data.player2Id == null)
+          && data.board is list
+          && data.board.size() == 9
+          && (data.board[0] is string || data.board[0] == null)
+          && data.turn is string && (data.turn == 'X' || data.turn == 'O')
+          && data.status is string && (data.status == 'waiting' || data.status == 'playing' || data.status == 'finished')
+          && (data.winner is string || data.winner == null)
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp
+          && (!('lastChat' in data) || (data.lastChat is map && data.lastChat.senderId is string && data.lastChat.text is string && data.lastChat.sentAt is number));
+      }
+
+      allow list: if isSignedIn() && (
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+      
+      allow get: if isSignedIn() && (
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+
+      allow delete: if isSignedIn() && (
+        resource == null || (
+          existing().status == 'waiting' && 
+          existing().player1Id == request.auth.uid
+        )
+      );
+
+      allow create: if isSignedIn()
+        && isValidId(gameId)
+        && isValidGame(incoming())
+        && incoming().winner == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          // Matchmaking Game Create
+          (
+            incoming().player1Id == request.auth.uid
+            && incoming().player2Id == null
+            && incoming().status == 'waiting'
+            && incoming().turn == 'X'
+          )
+          ||
+          // Challenge Game Create
+          (
+            (incoming().player1Id == request.auth.uid || incoming().player2Id == request.auth.uid)
+            && incoming().player2Id != null
+            && incoming().status == 'playing'
+            && incoming().turn == 'X'
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidGame(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().createdAt == existing().createdAt
+        && (
+          // Join Game
+          (
+            existing().status == 'waiting'
+            && incoming().status == 'playing'
+            && (incoming().player2Id == request.auth.uid || (existing().player1Id == request.auth.uid && incoming().player2Id.matches('^bot_.*')))
+            && incoming().player1Id == existing().player1Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'player2Id', 'updatedAt'])
+          )
+          ||
+          // Play Move
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['board', 'turn', 'status', 'winner', 'updatedAt'])
+          )
+          ||
+          // Send Chat Message
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().board == existing().board
+            && incoming().turn == existing().turn
+            && incoming().status == existing().status
+            && incoming().winner == existing().winner
+            && incoming().diff(existing()).affectedKeys().hasOnly(['lastChat', 'updatedAt'])
+          )
+        );
+    }
+
+    match /games_connect4/{gameId} {
+      function isValidConnect4Game(data) {
+        return data.keys().hasAll(['player1Id', 'player2Id', 'board', 'turn', 'status', 'winner', 'createdAt', 'updatedAt'])
+          && data.player1Id is string
+          && (data.player2Id is string || data.player2Id == null)
+          && data.board is list
+          && data.board.size() == 42
+          && (data.board[0] is string || data.board[0] == null)
+          && data.turn is string && (data.turn == 'red' || data.turn == 'yellow')
+          && data.status is string && (data.status == 'waiting' || data.status == 'playing' || data.status == 'finished')
+          && (data.winner is string || data.winner == null)
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp
+          && (!('lastChat' in data) || (data.lastChat is map && data.lastChat.senderId is string && data.lastChat.text is string && data.lastChat.sentAt is number));
+      }
+
+      allow list: if isSignedIn() && (
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+      
+      allow get: if isSignedIn() && (
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+
+      allow delete: if isSignedIn() && (
+        resource == null || (
+          existing().status == 'waiting' && 
+          existing().player1Id == request.auth.uid
+        )
+      );
+
+      allow create: if isSignedIn()
+        && isValidId(gameId)
+        && isValidConnect4Game(incoming())
+        && incoming().winner == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          // Matchmaking Game Create
+          (
+            incoming().player1Id == request.auth.uid
+            && incoming().player2Id == null
+            && incoming().status == 'waiting'
+            && incoming().turn == 'red'
+          )
+          ||
+          // Challenge Game Create
+          (
+            (incoming().player1Id == request.auth.uid || incoming().player2Id == request.auth.uid)
+            && incoming().player2Id != null
+            && incoming().status == 'playing'
+            && incoming().turn == 'red'
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidConnect4Game(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().createdAt == existing().createdAt
+        && (
+          // Join Game
+          (
+            existing().status == 'waiting'
+            && incoming().status == 'playing'
+            && (incoming().player2Id == request.auth.uid || (existing().player1Id == request.auth.uid && incoming().player2Id.matches('^bot_.*')))
+            && incoming().player1Id == existing().player1Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'player2Id', 'updatedAt'])
+          )
+          ||
+          // Play Move
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['board', 'turn', 'status', 'winner', 'updatedAt'])
+          )
+          ||
+          // Send Chat Message
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().board == existing().board
+            && incoming().turn == existing().turn
+            && incoming().status == existing().status
+            && incoming().winner == existing().winner
+            && incoming().diff(existing()).affectedKeys().hasOnly(['lastChat', 'updatedAt'])
+          )
+        );
+    }
+
+    match /games_dots/{gameId} {
+      function isValidDotsGame(data) {
+        return data.keys().hasAll(['player1Id', 'player2Id', 'board', 'turn', 'status', 'winner', 'createdAt', 'updatedAt'])
+          && data.player1Id is string
+          && (data.player2Id is string || data.player2Id == null)
+          && data.board is list
+          && data.board.size() == 56
+          && (data.board[0] is string || data.board[0] == null)
+          && data.turn is string && (data.turn == 'blue' || data.turn == 'red')
+          && data.status is string && (data.status == 'waiting' || data.status == 'playing' || data.status == 'finished')
+          && (data.winner is string || data.winner == null)
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp
+          && (!('lastChat' in data) || (data.lastChat is map && data.lastChat.senderId is string && data.lastChat.text is string && data.lastChat.sentAt is number));
+      }
+
+      allow list: if isSignedIn() && (
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+      
+      allow get: if isSignedIn() && (
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+
+      allow delete: if isSignedIn() && (
+        resource == null || (
+          existing().status == 'waiting' && 
+          existing().player1Id == request.auth.uid
+        )
+      );
+
+      allow create: if isSignedIn()
+        && isValidId(gameId)
+        && isValidDotsGame(incoming())
+        && incoming().winner == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          // Matchmaking Game Create
+          (
+            incoming().player1Id == request.auth.uid
+            && incoming().player2Id == null
+            && incoming().status == 'waiting'
+            && incoming().turn == 'blue'
+          )
+          ||
+          // Challenge Game Create
+          (
+            (incoming().player1Id == request.auth.uid || incoming().player2Id == request.auth.uid)
+            && incoming().player2Id != null
+            && incoming().status == 'playing'
+            && incoming().turn == 'blue'
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidDotsGame(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().createdAt == existing().createdAt
+        && (
+          // Join Game
+          (
+            existing().status == 'waiting'
+            && incoming().status == 'playing'
+            && (incoming().player2Id == request.auth.uid || (existing().player1Id == request.auth.uid && incoming().player2Id.matches('^bot_.*')))
+            && incoming().player1Id == existing().player1Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'player2Id', 'updatedAt'])
+          )
+          ||
+          // Play Move
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['board', 'turn', 'status', 'winner', 'updatedAt'])
+          )
+          ||
+          // Send Chat Message
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().board == existing().board
+            && incoming().turn == existing().turn
+            && incoming().status == existing().status
+            && incoming().winner == existing().winner
+            && incoming().diff(existing()).affectedKeys().hasOnly(['lastChat', 'updatedAt'])
+          )
+        );
+    }
+
+    match /games_utictactoe/{gameId} {
+      function isValidUtictactoeGame(data) {
+        return data.keys().hasAll(['player1Id', 'player2Id', 'smallBoards', 'macroBoard', 'activeBoard', 'turn', 'status', 'winner', 'createdAt', 'updatedAt'])
+          && data.player1Id is string
+          && (data.player2Id is string || data.player2Id == null)
+          && data.smallBoards is list
+          && data.smallBoards.size() == 9
+          && data.macroBoard is list
+          && data.macroBoard.size() == 9
+          && (data.activeBoard is number || data.activeBoard == null)
+          && data.turn is string && (data.turn == 'X' || data.turn == 'O')
+          && data.status is string && (data.status == 'waiting' || data.status == 'playing' || data.status == 'finished')
+          && (data.winner is string || data.winner == null)
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp
+          && (!('lastChat' in data) || (data.lastChat is map && data.lastChat.senderId is string && data.lastChat.text is string && data.lastChat.sentAt is number));
+      }
+
+      allow list: if isSignedIn() && (
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+      
+      allow get: if isSignedIn() && (
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+
+      allow delete: if isSignedIn() && (
+        resource == null || (
+          existing().status == 'waiting' && 
+          existing().player1Id == request.auth.uid
+        )
+      );
+
+      allow create: if isSignedIn()
+        && isValidId(gameId)
+        && isValidUtictactoeGame(incoming())
+        && incoming().winner == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          // Matchmaking Game Create
+          (
+            incoming().player1Id == request.auth.uid
+            && incoming().player2Id == null
+            && incoming().status == 'waiting'
+            && incoming().turn == 'X'
+          )
+          ||
+          // Challenge Game Create
+          (
+            (incoming().player1Id == request.auth.uid || incoming().player2Id == request.auth.uid)
+            && incoming().player2Id != null
+            && incoming().status == 'playing'
+            && incoming().turn == 'X'
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidUtictactoeGame(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().createdAt == existing().createdAt
+        && (
+          // Join Game
+          (
+            existing().status == 'waiting'
+            && incoming().status == 'playing'
+            && (incoming().player2Id == request.auth.uid || (existing().player1Id == request.auth.uid && incoming().player2Id.matches('^bot_.*')))
+            && incoming().player1Id == existing().player1Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'player2Id', 'updatedAt'])
+          )
+          ||
+          // Play Move
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['smallBoards', 'macroBoard', 'activeBoard', 'turn', 'status', 'winner', 'updatedAt'])
+          )
+          ||
+          // Send Chat Message
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().smallBoards == existing().smallBoards
+            && incoming().macroBoard == existing().macroBoard
+            && incoming().activeBoard == existing().activeBoard
+            && incoming().turn == existing().turn
+            && incoming().status == existing().status
+            && incoming().winner == existing().winner
+            && incoming().diff(existing()).affectedKeys().hasOnly(['lastChat', 'updatedAt'])
+          )
+        );
+    }
+
+    match /games_racing/{gameId} {
+      function isValidRacingGame(data) {
+        return data.keys().hasAll(['player1Id', 'player1Name', 'player2Id', 'player2Name', 'status', 'trackId', 'player1Time', 'player2Time', 'winnerId', 'winnerName', 'createdAt', 'updatedAt'])
+          && data.player1Id is string
+          && data.player1Name is string
+          && (data.player2Id is string || data.player2Id == null)
+          && (data.player2Name is string || data.player2Name == null)
+          && data.status is string && (data.status == 'waiting' || data.status == 'playing' || data.status == 'finished')
+          && data.trackId is string && (data.trackId == 'neon-gp' || data.trackId == 'drift-canyon')
+          && (data.player1Time is number || data.player1Time == null)
+          && (data.player2Time is number || data.player2Time == null)
+          && (data.winnerId is string || data.winnerId == null)
+          && (data.winnerName is string || data.winnerName == null)
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp
+          && (!('player1Ghost' in data) || data.player1Ghost is string)
+          && (!('player2Ghost' in data) || data.player2Ghost is string)
+          && (!('player1BestLap' in data) || data.player1BestLap is number)
+          && (!('player2BestLap' in data) || data.player2BestLap is number)
+          && (!('player1Ready' in data) || data.player1Ready is bool)
+          && (!('player2Ready' in data) || data.player2Ready is bool)
+          && (!('lastChat' in data) || (data.lastChat is map && data.lastChat.senderId is string && data.lastChat.text is string && data.lastChat.sentAt is number));
+      }
+
+      allow list: if isSignedIn() && (
+        resource.data.status == 'finished' ||
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+      
+      allow get: if isSignedIn() && (
+        resource.data.status == 'finished' ||
+        resource.data.status == 'waiting' ||
+        resource.data.player1Id == request.auth.uid ||
+        resource.data.player2Id == request.auth.uid
+      );
+
+      allow delete: if isSignedIn() && (
+        existing().player1Id == request.auth.uid
+      );
+
+      allow create: if isSignedIn()
+        && isValidId(gameId)
+        && isValidRacingGame(incoming())
+        && incoming().player1Time == null
+        && incoming().player2Time == null
+        && incoming().winnerId == null
+        && incoming().winnerName == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          // Matchmaking Game Create
+          (
+            incoming().player1Id == request.auth.uid
+            && incoming().player2Id == null
+            && incoming().status == 'waiting'
+          )
+          ||
+          // Challenge Game Create
+          (
+            (incoming().player1Id == request.auth.uid || incoming().player2Id == request.auth.uid)
+            && incoming().player2Id != null
+            && incoming().status == 'playing'
+          )
+          ||
+          // Solo Time Trial Game Create
+          (
+            incoming().player1Id == request.auth.uid
+            && incoming().player2Id == null
+            && incoming().status == 'playing'
+          )
+        );
+
+      allow update: if isSignedIn()
+        && isValidRacingGame(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().createdAt == existing().createdAt
+        && (
+          // Join Game
+          (
+            existing().status == 'waiting'
+            && incoming().status == 'playing'
+            && (incoming().player2Id == request.auth.uid || (existing().player1Id == request.auth.uid && incoming().player2Id.matches('^bot_.*')))
+            && incoming().player1Id == existing().player1Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'player2Id', 'player2Name', 'updatedAt'])
+          )
+          ||
+          // Play Move / Finish Run / Upload Ghost
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'player1Time', 'player2Time', 'player1BestLap', 'player2BestLap', 'player1Ghost', 'player2Ghost', 'winnerId', 'winnerName', 'player1Ready', 'player2Ready', 'updatedAt'])
+          )
+          ||
+          // Send Chat Message
+          (
+            existing().status == 'playing'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().trackId == existing().trackId
+            && incoming().player1Time == existing().player1Time
+            && incoming().player2Time == existing().player2Time
+            && incoming().status == existing().status
+            && incoming().winnerId == existing().winnerId
+            && incoming().winnerName == existing().winnerName
+            && incoming().diff(existing()).affectedKeys().hasOnly(['lastChat', 'updatedAt'])
+          )
+        );
+    }
+
+    match /challenges/{challengeId} {
+      function isValidChallenge(data) {
+        return data.keys().hasAll(['senderId', 'senderName', 'receiverId', 'gameType', 'status', 'gameId', 'createdAt', 'updatedAt'])
+          && data.senderId is string
+          && data.senderName is string
+          && data.receiverId is string
+          && data.gameType is string && (data.gameType == 'tictactoe' || data.gameType == 'connect4' || data.gameType == 'dots' || data.gameType == 'utictactoe' || data.gameType == 'racing')
+          && data.status is string && (data.status == 'pending' || data.status == 'accepted' || data.status == 'declined')
+          && (data.gameId is string || data.gameId == null)
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp;
+      }
+
+      allow read: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
+
+      allow create: if isSignedIn()
+        && isValidId(challengeId)
+        && isValidChallenge(incoming())
+        && incoming().senderId == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().gameId == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidChallenge(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().createdAt == existing().createdAt
+        && (
+          // Receiver accepts or declines
+          (
+            existing().status == 'pending'
+            && existing().receiverId == request.auth.uid
+            && incoming().senderId == existing().senderId
+            && incoming().receiverId == existing().receiverId
+            && (incoming().status == 'accepted' || incoming().status == 'declined')
+            && (incoming().gameId is string || incoming().gameId == null)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'gameId', 'updatedAt'])
+          )
+          ||
+          // Sender cancels/updates
+          (
+            existing().senderId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isSignedIn() && (
+        existing().senderId == request.auth.uid ||
+        existing().receiverId == request.auth.uid
+      );
+    }
+  }
+}
