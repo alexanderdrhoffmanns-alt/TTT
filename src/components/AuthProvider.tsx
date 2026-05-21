@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "../lib/firebase";
-import { doc, getDocFromServer, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDocFromServer, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 interface AuthContextType {
   user: User | null;
@@ -51,6 +51,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => unsubscribe();
   }, []);
+
+  // Presence Heartbeat
+  useEffect(() => {
+    if (!user) return;
+
+    const updatePresence = async () => {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await setDoc(userRef, { lastActive: serverTimestamp() }, { merge: true });
+      } catch (error) {
+        console.error("Error updating presence heartbeat:", error);
+      }
+    };
+
+    updatePresence();
+    const interval = setInterval(updatePresence, 40000);
+
+    return () => clearInterval(interval);
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{ user, isLoading }}>

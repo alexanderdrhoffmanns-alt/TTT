@@ -42,6 +42,7 @@ service cloud.firestore {
           && (!('racing_losses' in data) || data.racing_losses is number)
           && (!('racing_draws' in data) || data.racing_draws is number)
           && (!('email' in data) || data.email is string)
+          && (!('lastActive' in data) || data.lastActive is timestamp)
           && data.createdAt is timestamp;
       }
 
@@ -60,7 +61,7 @@ service cloud.firestore {
 
       allow update: if isSignedIn()
         && (userId == request.auth.uid || userId.matches('^bot_.*'))
-        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'rating', 'gamesPlayed', 'wins', 'losses', 'draws', 'connect4_rating', 'connect4_gamesPlayed', 'connect4_wins', 'connect4_losses', 'connect4_draws', 'dots_rating', 'dots_gamesPlayed', 'dots_wins', 'dots_losses', 'dots_draws', 'utictactoe_rating', 'utictactoe_gamesPlayed', 'utictactoe_wins', 'utictactoe_losses', 'utictactoe_draws', 'racing_rating', 'racing_gamesPlayed', 'racing_wins', 'racing_losses', 'racing_draws', 'email'])
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'rating', 'gamesPlayed', 'wins', 'losses', 'draws', 'connect4_rating', 'connect4_gamesPlayed', 'connect4_wins', 'connect4_losses', 'connect4_draws', 'dots_rating', 'dots_gamesPlayed', 'dots_wins', 'dots_losses', 'dots_draws', 'utictactoe_rating', 'utictactoe_gamesPlayed', 'utictactoe_wins', 'utictactoe_losses', 'utictactoe_draws', 'racing_rating', 'racing_gamesPlayed', 'racing_wins', 'racing_losses', 'racing_draws', 'email', 'lastActive'])
         && (!('rating' in incoming().diff(existing()).affectedKeys()) || (
              (incoming().rating - existing().rating) >= -100 && (incoming().rating - existing().rating) <= 100
            ))
