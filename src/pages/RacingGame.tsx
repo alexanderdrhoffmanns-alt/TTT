@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, onSnapshot, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, getDoc, deleteDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp, collection, query, where, getDocs, setDoc, getDoc, deleteDoc, increment } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 import { useAuth } from "../components/AuthProvider";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -296,7 +296,7 @@ export default function RacingGame() {
           }
 
           // Try to load the fastest run with a ghost recording
-          const runsWithGhost = trackRuns.filter(r => r.player1Ghost);
+          const runsWithGhost = trackRuns.filter(r => r.player1Ghost && r.player1Ghost !== "");
           if (runsWithGhost.length > 0) {
             runsWithGhost.sort((a, b) => a.player1Time - b.player1Time);
             const recordGhostRun = runsWithGhost[0];
@@ -1071,6 +1071,16 @@ export default function RacingGame() {
     if (!gameId || !user || !gameDoc) return;
 
     try {
+      // 1. Increment racing_gamesPlayed for the user in the users collection
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, {
+          racing_gamesPlayed: increment(1)
+        });
+      } catch (err) {
+        console.error("Error incrementing racing_gamesPlayed:", err);
+      }
+
       const ghostString = JSON.stringify(myGhostBuffer.current);
 
       // Safeguard: Make sure bestLap is a valid number, otherwise fallback to finalTime / 3
@@ -1103,7 +1113,7 @@ export default function RacingGame() {
       }
 
       if (finalTime < existingBestTime) {
-        // This is a new Personal Best! We save this run and delete all other finished runs
+        // This is a new Personal Best! We save this run with full ghost telemetry
         const updates: any = {
           player1Time: finalTime,
           player1BestLap: safeBestLap,
@@ -1115,22 +1125,29 @@ export default function RacingGame() {
         const gameRef = doc(db, "games_racing", gameId);
         await updateDoc(gameRef, updates);
 
-        // Delete all old finished runs
+        // Clear ghost telemetry for all older finished runs to save storage space
         for (const oldId of existingBestDocIds) {
           try {
-            await deleteDoc(doc(db, "games_racing", oldId));
+            await updateDoc(doc(db, "games_racing", oldId), {
+              player1Ghost: "",
+              updatedAt: serverTimestamp()
+            });
           } catch (err) {
-            console.error("Error deleting old run:", oldId, err);
+            console.error("Error clearing ghost of old run:", oldId, err);
           }
         }
       } else {
-        // Did not beat PB! We delete this current game session entirely from Firestore
-        // so it doesn't consume any space.
-        try {
-          await deleteDoc(doc(db, "games_racing", gameId));
-        } catch (err) {
-          console.error("Error deleting non-PB run:", err);
-        }
+        // Did not beat PB! We save this current game session as finished but with empty ghost telemetry to save space
+        const updates: any = {
+          player1Time: finalTime,
+          player1BestLap: safeBestLap,
+          player1Ghost: "",
+          status: "finished",
+          updatedAt: serverTimestamp()
+        };
+
+        const gameRef = doc(db, "games_racing", gameId);
+        await updateDoc(gameRef, updates);
       }
     } catch (e) {
       console.error("Error submitting race results:", e);

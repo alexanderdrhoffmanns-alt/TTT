@@ -590,6 +590,21 @@ service cloud.firestore {
             && incoming().winnerName == existing().winnerName
             && incoming().diff(existing()).affectedKeys().hasOnly(['lastChat', 'updatedAt'])
           )
+          ||
+          // Clear ghost telemetry for finished games (for storage efficiency)
+          (
+            existing().status == 'finished'
+            && (existing().player1Id == request.auth.uid || existing().player2Id == request.auth.uid)
+            && incoming().player1Id == existing().player1Id
+            && incoming().player2Id == existing().player2Id
+            && incoming().trackId == existing().trackId
+            && incoming().player1Time == existing().player1Time
+            && incoming().player2Time == existing().player2Time
+            && incoming().status == existing().status
+            && incoming().winnerId == existing().winnerId
+            && incoming().winnerName == existing().winnerName
+            && incoming().diff(existing()).affectedKeys().hasOnly(['player1Ghost', 'player2Ghost', 'updatedAt'])
+          )
         );
     }
 
