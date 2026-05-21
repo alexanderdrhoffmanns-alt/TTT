@@ -479,23 +479,44 @@ export default function NeonRider() {
     let localScore = 0;
     let localTime = 0;
 
-    const getTerrainHeight = (px: number): { y: number; slopeAngle: number } => {
-      // Find segment
+    const getTerrainHeight = (px: number, py: number): { y: number; slopeAngle: number } => {
+      let minDst = Infinity;
+      let closestY = py;
+      let closestSlope = 0;
+
+      // Find closest segment to the given 2D coordinates
       for (let i = 0; i < trackPoints.length - 1; i++) {
         const p1 = trackPoints[i];
         const p2 = trackPoints[i + 1];
-        if (px >= p1.x && px <= p2.x) {
-          const ratio = (px - p1.x) / (p2.x - p1.x);
-          const y = p1.y + ratio * (p2.y - p1.y);
-          const slopeAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-          return { y, slopeAngle };
+
+        const vx = p2.x - p1.x;
+        const vy = p2.y - p1.y;
+        const lenSq = vx * vx + vy * vy;
+        if (lenSq === 0) continue;
+
+        const wx = px - p1.x;
+        const wy = py - p1.y;
+
+        let t = (wx * vx + wy * vy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+
+        const cx = p1.x + t * vx;
+        const cy = p1.y + t * vy;
+
+        const dst = Math.hypot(px - cx, py - cy);
+        if (dst < minDst) {
+          minDst = dst;
+          closestY = cy;
+          closestSlope = Math.atan2(vy, vx);
         }
       }
-      // Out of bounds - fallback to last point
-      if (trackPoints.length > 0) {
-        return { y: trackPoints[trackPoints.length - 1].y, slopeAngle: 0 };
+
+      if (minDst === Infinity) {
+        // Fallback if no points exist
+        return { y: 400, slopeAngle: 0 };
       }
-      return { y: 400, slopeAngle: 0 };
+
+      return { y: closestY, slopeAngle: closestSlope };
     };
 
     // Procedural generation helper for Endless Grid
@@ -588,20 +609,27 @@ export default function NeonRider() {
       const acceleration = 0.38;
       const maxGroundSpeed = 16.5;
 
-      // Track heights at back/front wheel offsets
-      const backWheelX = rider.x + backWheelOffset * Math.cos(rider.angle);
-      const backWheelY = rider.y + backWheelOffset * Math.sin(rider.angle);
-      const frontWheelX = rider.x + frontWheelOffset * Math.cos(rider.angle);
-      const frontWheelY = rider.y + frontWheelOffset * Math.sin(rider.angle);
+      // Calculate wheel centers (including vertical offset of 6px in chassis space)
+      const cosA = Math.cos(rider.angle);
+      const sinA = Math.sin(rider.angle);
+      
+      const backWheelX = rider.x + backWheelOffset * cosA - 6 * sinA;
+      const backWheelY = rider.y + backWheelOffset * sinA + 6 * cosA;
+      const frontWheelX = rider.x + frontWheelOffset * cosA - 6 * sinA;
+      const frontWheelY = rider.y + frontWheelOffset * sinA + 6 * cosA;
 
-      const terrainBack = getTerrainHeight(backWheelX);
-      const terrainFront = getTerrainHeight(frontWheelX);
-      const terrainCenter = getTerrainHeight(rider.x);
+      const terrainBack = getTerrainHeight(backWheelX, backWheelY);
+      const terrainFront = getTerrainHeight(frontWheelX, frontWheelY);
+      const terrainCenter = getTerrainHeight(rider.x, rider.y);
 
-      // Determine if on ground
-      const backTouching = backWheelY >= terrainBack.y - 4;
-      const frontTouching = frontWheelY >= terrainFront.y - 4;
-      const isCurrentlyOnGround = backTouching || frontTouching || (rider.y >= terrainCenter.y - 4);
+      // Wheel bottoms (6px radius below wheel center)
+      const backWheelBottomY = backWheelY + 6;
+      const frontWheelBottomY = frontWheelY + 6;
+
+      // Determine if on ground (with buffer to prevent jittering/snapping bugs)
+      const backTouching = backWheelBottomY >= terrainBack.y - 6;
+      const frontTouching = frontWheelBottomY >= terrainFront.y - 6;
+      const isCurrentlyOnGround = backTouching || frontTouching || (rider.y >= terrainCenter.y - 16);
 
       // Input check: User holding Spacebar/click/touch
       const isHoldingControls = isHoldingKeyRef.current || touchActiveRef.current;
