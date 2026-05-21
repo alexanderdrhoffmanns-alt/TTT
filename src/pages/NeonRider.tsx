@@ -479,44 +479,34 @@ export default function NeonRider() {
     let localScore = 0;
     let localTime = 0;
 
-    const getTerrainHeight = (px: number, py: number): { y: number; slopeAngle: number } => {
-      let minDst = Infinity;
-      let closestY = py;
-      let closestSlope = 0;
+    const getTerrainHeight = (px: number, py: number): { y: number; slopeAngle: number } | null => {
+      let closestSegment: { y: number; slopeAngle: number } | null = null;
+      let minDistanceY = Infinity;
 
-      // Find closest segment to the given 2D coordinates
+      // Find closest segment that horizontally spans px
       for (let i = 0; i < trackPoints.length - 1; i++) {
         const p1 = trackPoints[i];
         const p2 = trackPoints[i + 1];
 
-        const vx = p2.x - p1.x;
-        const vy = p2.y - p1.y;
-        const lenSq = vx * vx + vy * vy;
-        if (lenSq === 0) continue;
+        const minX = Math.min(p1.x, p2.x);
+        const maxX = Math.max(p1.x, p2.x);
 
-        const wx = px - p1.x;
-        const wy = py - p1.y;
+        if (px >= minX && px <= maxX) {
+          const dx = p2.x - p1.x;
+          if (dx === 0) continue; // vertical wall skip
 
-        let t = (wx * vx + wy * vy) / lenSq;
-        t = Math.max(0, Math.min(1, t));
+          const ratio = (px - p1.x) / dx;
+          const y = p1.y + ratio * (p2.y - p1.y);
+          const distanceY = Math.abs(py - y);
 
-        const cx = p1.x + t * vx;
-        const cy = p1.y + t * vy;
-
-        const dst = Math.hypot(px - cx, py - cy);
-        if (dst < minDst) {
-          minDst = dst;
-          closestY = cy;
-          closestSlope = Math.atan2(vy, vx);
+          if (distanceY < minDistanceY) {
+            minDistanceY = distanceY;
+            const slopeAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            closestSegment = { y, slopeAngle };
+          }
         }
       }
-
-      if (minDst === Infinity) {
-        // Fallback if no points exist
-        return { y: 400, slopeAngle: 0 };
-      }
-
-      return { y: closestY, slopeAngle: closestSlope };
+      return closestSegment;
     };
 
     // Procedural generation helper for Endless Grid
@@ -627,14 +617,16 @@ export default function NeonRider() {
       const frontWheelBottomY = frontWheelY + 6;
 
       // Determine if on ground (with buffer to prevent jittering/snapping bugs)
-      const backTouching = backWheelBottomY >= terrainBack.y - 6;
-      const frontTouching = frontWheelBottomY >= terrainFront.y - 6;
-      const isCurrentlyOnGround = backTouching || frontTouching || (rider.y >= terrainCenter.y - 16);
+      const backTouching = terrainBack ? (backWheelBottomY >= terrainBack.y - 6) : false;
+      const frontTouching = terrainFront ? (frontWheelBottomY >= terrainFront.y - 6) : false;
+      const isCurrentlyOnGround = terrainCenter
+        ? (backTouching || frontTouching || (rider.y >= terrainCenter.y - 16))
+        : false;
 
       // Input check: User holding Spacebar/click/touch
       const isHoldingControls = isHoldingKeyRef.current || touchActiveRef.current;
 
-      if (isCurrentlyOnGround) {
+      if (isCurrentlyOnGround && terrainCenter) {
         if (!rider.onGround) {
           // Just touched down! Evaluate landing stunt quality
           rider.onGround = true;
@@ -1381,6 +1373,17 @@ export default function NeonRider() {
                 touchActiveRef.current = true;
               }}
               onTouchEnd={() => {
+                touchActiveRef.current = false;
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                if (!audioCtxRef.current) initAudio();
+                touchActiveRef.current = true;
+              }}
+              onMouseUp={() => {
+                touchActiveRef.current = false;
+              }}
+              onMouseLeave={() => {
                 touchActiveRef.current = false;
               }}
             />
