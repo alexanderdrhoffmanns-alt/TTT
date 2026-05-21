@@ -493,6 +493,9 @@ export default function NeonRider() {
         const vy = p2.y - p1.y;
         const lenSq = vx * vx + vy * vy;
         if (lenSq === 0) continue;
+        
+        // Skip gaps (long invisible segments)
+        if (Math.sqrt(lenSq) > 80) continue;
 
         let t = ((px - p1.x) * vx + (py - p1.y) * vy) / lenSq;
         t = Math.max(0, Math.min(1, t));
@@ -593,10 +596,10 @@ export default function NeonRider() {
         setSlowmoMsg(null);
       }
 
-      // Scaled time step for bullet time slow motion
-      const step = dt * slowmoFactor;
+      // Scaled time step. (dt * 60) normalizes to 1.0 at 60fps.
+      const step = dt * 60 * slowmoFactor;
 
-      // 2. Physics values
+      // 2. Physics values (tuned for 60fps)
       const gravity = 0.44;
       const rotationSpeed = 0.082;
       const acceleration = 0.38;
@@ -621,33 +624,103 @@ export default function NeonRider() {
       const isCurrentlyOnGround = terrainCenter
         ? (backTouching || frontTouching || (terrainCenter.distance <= 20))
         : false;
-
       // Input check: User holding Spacebar/click/touch
       const isHoldingControls = isHoldingKeyRef.current || touchActiveRef.current;
 
-      if (isCurrentlyOnGround && terrainCenter) {
-        if (!rider.onGround) {
-          // Just touched down! Evaluate landing stunt quality
+      // Always apply gravity
+      rider.vy += gravity * step;
+
+      // Apply driving controls
+      if (isHoldingControls) {
+          if (rider.onGround) {
+              const driveForce = acceleration + (rider.speedBonusTimer > 0 ? 0.35 : 0);
+              rider.vx += Math.cos(rider.angle) * driveForce * step;
+              rider.vy += Math.sin(rider.angle) * driveForce * step;
+          } else {
+              rider.angularVelocity += rotationSpeed * 0.18 * step;
+              if (rider.angularVelocity > 0.16) rider.angularVelocity = 0.16;
+          }
+      } else {
+          if (!rider.onGround) {
+              rider.angularVelocity *= 0.94; // natural spin drag
+          }
+      }
+
+      // Apply ground friction
+      if (rider.onGround) {
+          rider.vx *= 0.985;
+          rider.vy *= 0.985;
+      }
+
+      // Move car coordinates
+      rider.x += rider.vx * step;
+      rider.y += rider.vy * step;
+      rider.angle += rider.angularVelocity * step;
+      if (!rider.onGround) {
+          rider.accumulatedAirTimeRotation += rider.angularVelocity * step;
+      }
+
+      // Collision Resolution
+      const closest = getClosestTrackPoint(rider.x, rider.y);
+      let touching = false;
+
+      // If within 14px (12px resting + 2px buffer), push out and project velocity
+      if (closest && closest.distance <= 14) {
+          touching = true;
+
+          const nx = Math.sin(closest.slopeAngle);
+          const ny = -Math.cos(closest.slopeAngle);
+
+          // Push out strictly along normal
+          rider.x = closest.x + nx * 12;
+          rider.y = closest.y + ny * 12;
+
+          // Project velocity onto tangent to maintain solid 2D track traversal
+          const tangentX = Math.cos(closest.slopeAngle);
+          const tangentY = Math.sin(closest.slopeAngle);
+          let speedAlongTrack = rider.vx * tangentX + rider.vy * tangentY;
+          
+          // Arcade boost: Preserve momentum when hitting concave ramps
+          const currentSpeed = Math.hypot(rider.vx, rider.vy);
+          if (speedAlongTrack > 0 && speedAlongTrack < currentSpeed) {
+              speedAlongTrack = speedAlongTrack * 0.5 + currentSpeed * 0.5;
+          }
+
+          // Speed limit
+          if (speedAlongTrack > maxGroundSpeed) speedAlongTrack = maxGroundSpeed;
+          else if (speedAlongTrack < -maxGroundSpeed) speedAlongTrack = -maxGroundSpeed;
+
+          rider.vx = speedAlongTrack * tangentX;
+          rider.vy = speedAlongTrack * tangentY;
+
+          // Smoothly align chassis angle to track slope
+          let angleDiff = closest.slopeAngle - rider.angle;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          rider.angle += angleDiff * 0.45 * step;
+          rider.angularVelocity = 0;
+      }
+
+      // Handle State changes
+      if (touching && !rider.onGround) {
+          // Just landed!
           rider.onGround = true;
           playSynthSound("landing");
 
-          // Evaluate angle alignment
-          const angleDiff = Math.abs(rider.angle - terrainCenter.slopeAngle);
+          const angleDiff = Math.abs(rider.angle - closest!.slopeAngle);
           const normalizedDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
 
           if (Math.abs(normalizedDiff) > 1.25) {
-            // CRASHED! Boom!
             triggerCrash(now);
             return;
           }
 
-          // Evaluate Flip completion bonuses
           if (rider.flipsCompleted > 0) {
             const isPerfect = Math.abs(normalizedDiff) < 0.28;
             let scoreGained = rider.flipsCompleted * 250;
             if (isPerfect) {
-              scoreGained *= 2; // Perfect Landing Double score!
-              rider.speedBonusTimer = 45; // Super Speed burst!
+              scoreGained *= 2;
+              rider.speedBonusTimer = 45;
               setSlowmoMsg(`⚡ PERFECT LANDING x${rider.flipsCompleted}!`);
             } else {
               setSlowmoMsg(`🔥 NICE FLIP x${rider.flipsCompleted}!`);
@@ -656,7 +729,6 @@ export default function NeonRider() {
             localScore += scoreGained;
             setCurrentScore(localScore);
 
-            // Spawn celebration particles
             for (let i = 0; i < 15; i++) {
               particles.push({
                 x: rider.x,
@@ -670,79 +742,18 @@ export default function NeonRider() {
               });
             }
           }
-
           rider.flipsCompleted = 0;
           rider.accumulatedAirTimeRotation = 0;
-        }
-
-        // Apply ground movement
-        rider.angularVelocity = 0;
-
-        // Snap to ground slope safely
-        const targetAngle = terrainCenter.slopeAngle;
-        let angleDiff = targetAngle - rider.angle;
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        rider.angle += angleDiff * 0.55; // faster smooth alignment
-
-        // Apply driving force
-        if (isHoldingControls) {
-          const driveForce = acceleration + (rider.speedBonusTimer > 0 ? 0.35 : 0);
-          rider.vx += Math.cos(targetAngle) * driveForce;
-          rider.vy += Math.sin(targetAngle) * driveForce;
-        }
-
-        // Project velocity onto the track tangent to maintain solid 2D track traversal
-        const tangentX = Math.cos(targetAngle);
-        const tangentY = Math.sin(targetAngle);
-        let speedAlongTrack = rider.vx * tangentX + rider.vy * tangentY;
-        
-        // Friction and speed limits
-        speedAlongTrack *= 0.985;
-        if (speedAlongTrack > maxGroundSpeed) speedAlongTrack = maxGroundSpeed;
-        else if (speedAlongTrack < -maxGroundSpeed) speedAlongTrack = -maxGroundSpeed;
-
-        rider.vx = speedAlongTrack * tangentX;
-        rider.vy = speedAlongTrack * tangentY;
-
-        rider.x += rider.vx * step;
-        rider.y += rider.vy * step;
-
-        // Perfect projection snap: Re-eval closest point after movement
-        const newClosest = getClosestTrackPoint(rider.x, rider.y);
-        if (newClosest) {
-          const nx = Math.sin(newClosest.slopeAngle);
-          const ny = -Math.cos(newClosest.slopeAngle);
-          rider.x = newClosest.x + nx * 12; // ride offset exactly along normal
-          rider.y = newClosest.y + ny * 12;
-        }
-      } else {
-        // Airborne state physics
-        if (rider.onGround) {
+      } else if (!touching && rider.onGround) {
+          // Gracefully flew off a ledge/ramp into the air
           rider.onGround = false;
           playSynthSound("jump");
           rider.lastAirborneAngle = rider.angle;
           rider.accumulatedAirTimeRotation = 0;
-        }
+      }
 
-        // Apply gravity
-        rider.vy += gravity;
-        rider.y += rider.vy * step;
-
-        // Rotational dynamics: Flipping in the air
-        if (isHoldingControls) {
-          rider.angularVelocity += rotationSpeed * 0.18;
-          if (rider.angularVelocity > 0.16) {
-            rider.angularVelocity = 0.16;
-          }
-        } else {
-          rider.angularVelocity *= 0.94; // natural spin drag
-        }
-
-        rider.angle += rider.angularVelocity * step;
-        rider.accumulatedAirTimeRotation += rider.angularVelocity * step;
-
-        // Detect full backflips (360 degrees rotation)
+      // Detect full backflips (360 degrees rotation)
+      if (!rider.onGround) {
         if (Math.abs(rider.accumulatedAirTimeRotation) >= Math.PI * 2 * (rider.flipsCompleted + 1)) {
           rider.flipsCompleted++;
           playSynthSound("flip");
@@ -769,9 +780,6 @@ export default function NeonRider() {
         // Horizontal air resistance drag
         rider.vx *= 0.995;
       }
-
-      // Horizontal update
-      rider.x += rider.vx * step;
 
       // Handle endless distance scoring
       if (activeTab === "endless-grid") {
