@@ -479,34 +479,36 @@ export default function NeonRider() {
     let localScore = 0;
     let localTime = 0;
 
-    const getTerrainHeight = (px: number, py: number): { y: number; slopeAngle: number } | null => {
-      let closestSegment: { y: number; slopeAngle: number } | null = null;
-      let minDistanceY = Infinity;
+    const getClosestTrackPoint = (px: number, py: number): { x: number; y: number; slopeAngle: number; distance: number } | null => {
+      if (trackPoints.length < 2) return null;
+      let closestPoint = { x: px, y: py };
+      let closestSlope = 0;
+      let minDistance = Infinity;
 
-      // Find closest segment that horizontally spans px
       for (let i = 0; i < trackPoints.length - 1; i++) {
         const p1 = trackPoints[i];
         const p2 = trackPoints[i + 1];
 
-        const minX = Math.min(p1.x, p2.x);
-        const maxX = Math.max(p1.x, p2.x);
+        const vx = p2.x - p1.x;
+        const vy = p2.y - p1.y;
+        const lenSq = vx * vx + vy * vy;
+        if (lenSq === 0) continue;
 
-        if (px >= minX && px <= maxX) {
-          const dx = p2.x - p1.x;
-          if (dx === 0) continue; // vertical wall skip
+        let t = ((px - p1.x) * vx + (py - p1.y) * vy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
 
-          const ratio = (px - p1.x) / dx;
-          const y = p1.y + ratio * (p2.y - p1.y);
-          const distanceY = Math.abs(py - y);
+        const cx = p1.x + t * vx;
+        const cy = p1.y + t * vy;
 
-          if (distanceY < minDistanceY) {
-            minDistanceY = distanceY;
-            const slopeAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-            closestSegment = { y, slopeAngle };
-          }
+        const distance = Math.hypot(px - cx, py - cy);
+
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestPoint = { x: cx, y: cy };
+          closestSlope = Math.atan2(vy, vx);
         }
       }
-      return closestSegment;
+      return { x: closestPoint.x, y: closestPoint.y, slopeAngle: closestSlope, distance: minDistance };
     };
 
     // Procedural generation helper for Endless Grid
@@ -563,13 +565,14 @@ export default function NeonRider() {
           const loopCenterX = cx + 180;
           const loopCenterY = cy - 110;
           const loopRadius = 110;
-          for (let angle = Math.PI / 2; angle <= Math.PI * 2.5; angle += 0.18) {
+          // Draw loop counter-clockwise so the rider can naturally ride UP and inside it
+          for (let angle = Math.PI / 2; angle >= -Math.PI * 1.5; angle -= 0.18) {
             const lx = loopCenterX + loopRadius * Math.cos(angle);
             const ly = loopCenterY + loopRadius * Math.sin(angle);
             trackPoints.push({ x: lx, y: ly });
           }
-          cx = loopCenterX + loopRadius * Math.cos(Math.PI * 2.5) + 30;
-          cy = loopCenterY + loopRadius * Math.sin(Math.PI * 2.5);
+          cx = loopCenterX + loopRadius * Math.cos(-Math.PI * 1.5) + 30;
+          cy = loopCenterY + loopRadius * Math.sin(-Math.PI * 1.5);
           for (let i = 0; i < 10; i++) {
             cx += 30;
             trackPoints.push({ x: cx, y: cy });
@@ -608,19 +611,15 @@ export default function NeonRider() {
       const frontWheelX = rider.x + frontWheelOffset * cosA - 6 * sinA;
       const frontWheelY = rider.y + frontWheelOffset * sinA + 6 * cosA;
 
-      const terrainBack = getTerrainHeight(backWheelX, backWheelY);
-      const terrainFront = getTerrainHeight(frontWheelX, frontWheelY);
-      const terrainCenter = getTerrainHeight(rider.x, rider.y);
-
-      // Wheel bottoms (6px radius below wheel center)
-      const backWheelBottomY = backWheelY + 6;
-      const frontWheelBottomY = frontWheelY + 6;
+      const terrainBack = getClosestTrackPoint(backWheelX, backWheelY);
+      const terrainFront = getClosestTrackPoint(frontWheelX, frontWheelY);
+      const terrainCenter = getClosestTrackPoint(rider.x, rider.y);
 
       // Determine if on ground (with buffer to prevent jittering/snapping bugs)
-      const backTouching = terrainBack ? (backWheelBottomY >= terrainBack.y - 6) : false;
-      const frontTouching = terrainFront ? (frontWheelBottomY >= terrainFront.y - 6) : false;
+      const backTouching = terrainBack ? (terrainBack.distance <= 14) : false; // wheel radius 6 + 8px buffer
+      const frontTouching = terrainFront ? (terrainFront.distance <= 14) : false;
       const isCurrentlyOnGround = terrainCenter
-        ? (backTouching || frontTouching || (rider.y >= terrainCenter.y - 16))
+        ? (backTouching || frontTouching || (terrainCenter.distance <= 20))
         : false;
 
       // Input check: User holding Spacebar/click/touch
@@ -677,7 +676,6 @@ export default function NeonRider() {
         }
 
         // Apply ground movement
-        rider.vy = 0;
         rider.angularVelocity = 0;
 
         // Snap to ground slope safely
@@ -685,21 +683,38 @@ export default function NeonRider() {
         let angleDiff = targetAngle - rider.angle;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        rider.angle += angleDiff * 0.32; // smooth alignment
-
-        // Snap to ground height
-        rider.y = terrainCenter.y - 12; // ride offset
+        rider.angle += angleDiff * 0.55; // faster smooth alignment
 
         // Apply driving force
         if (isHoldingControls) {
           const driveForce = acceleration + (rider.speedBonusTimer > 0 ? 0.35 : 0);
-          rider.vx += Math.cos(rider.angle) * driveForce;
+          rider.vx += Math.cos(targetAngle) * driveForce;
+          rider.vy += Math.sin(targetAngle) * driveForce;
         }
 
-        // Apply standard ground friction
-        rider.vx *= 0.985;
-        if (rider.vx > maxGroundSpeed) {
-          rider.vx = maxGroundSpeed;
+        // Project velocity onto the track tangent to maintain solid 2D track traversal
+        const tangentX = Math.cos(targetAngle);
+        const tangentY = Math.sin(targetAngle);
+        let speedAlongTrack = rider.vx * tangentX + rider.vy * tangentY;
+        
+        // Friction and speed limits
+        speedAlongTrack *= 0.985;
+        if (speedAlongTrack > maxGroundSpeed) speedAlongTrack = maxGroundSpeed;
+        else if (speedAlongTrack < -maxGroundSpeed) speedAlongTrack = -maxGroundSpeed;
+
+        rider.vx = speedAlongTrack * tangentX;
+        rider.vy = speedAlongTrack * tangentY;
+
+        rider.x += rider.vx * step;
+        rider.y += rider.vy * step;
+
+        // Perfect projection snap: Re-eval closest point after movement
+        const newClosest = getClosestTrackPoint(rider.x, rider.y);
+        if (newClosest) {
+          const nx = Math.sin(newClosest.slopeAngle);
+          const ny = -Math.cos(newClosest.slopeAngle);
+          rider.x = newClosest.x + nx * 12; // ride offset exactly along normal
+          rider.y = newClosest.y + ny * 12;
         }
       } else {
         // Airborne state physics
