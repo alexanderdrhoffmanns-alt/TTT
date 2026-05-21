@@ -663,5 +663,32 @@ service cloud.firestore {
         existing().receiverId == request.auth.uid
       );
     }
+
+    match /games_rider/{gameId} {
+      function isValidRiderGame(data) {
+        return data.keys().hasAll(['playerId', 'playerName', 'trackId', 'score', 'time', 'status', 'createdAt'])
+          && data.playerId is string
+          && data.playerName is string
+          && data.trackId is string
+          && data.score is number
+          && (data.time is number || data.time == null)
+          && data.status is string && (data.status == 'playing' || data.status == 'finished')
+          && data.createdAt is timestamp;
+      }
+
+      allow read: if isSignedIn();
+      allow delete: if isSignedIn() && resource.data.playerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(gameId)
+        && isValidRiderGame(incoming())
+        && incoming().playerId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn()
+        && isValidRiderGame(incoming())
+        && incoming().playerId == request.auth.uid
+        && incoming().playerId == existing().playerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['score', 'time', 'status']);
+    }
   }
 }

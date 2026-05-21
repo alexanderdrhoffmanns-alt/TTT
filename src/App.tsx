@@ -14,7 +14,9 @@ import RacingLobby from "./pages/RacingLobby";
 import RacingGame from "./pages/RacingGame";
 import Game from "./pages/Game";
 import Profile from "./pages/Profile";
+import NeonRider from "./pages/NeonRider";
 import ChallengeManager from "./components/ChallengeManager";
+
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -89,6 +91,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <Profile />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/rider" 
+                element={
+                  <ProtectedRoute>
+                    <NeonRider />
                   </ProtectedRoute>
                 } 
               />

@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../components/AuthProvider";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { LogOut, Gamepad2, Grid3X3, LayoutGrid, Square, X, Car, User, Calendar, Trophy, ChevronRight, Activity, Clock } from "lucide-react";
+import { LogOut, Gamepad2, Grid3X3, LayoutGrid, Square, X, Car, User, Calendar, Trophy, ChevronRight, Activity, Clock, CircleDot, Milestone, Sparkles } from "lucide-react";
 import React, { useState, useEffect } from "react";
 import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
@@ -47,6 +47,11 @@ export default function Dashboard() {
     "neon-gp": number | null;
     "drift-canyon": number | null;
   } | null>(null);
+  const [selectedPlayerRiderStats, setSelectedPlayerRiderStats] = useState<{
+    "neon-loop": number | null;
+    "gravity-drop": number | null;
+    "endless-grid": number | null;
+  } | null>(null);
   const [isLoadingTimes, setIsLoadingTimes] = useState(false);
 
   // Subscribe to users collection for presence
@@ -88,6 +93,7 @@ export default function Dashboard() {
   const handlePlayerClick = async (player: any) => {
     setSelectedPlayer(player);
     setSelectedPlayerTimes(null);
+    setSelectedPlayerRiderStats(null);
     setIsLoadingTimes(true);
     try {
       const q = query(
@@ -116,8 +122,46 @@ export default function Dashboard() {
         "neon-gp": neonGpBest,
         "drift-canyon": driftCanyonBest
       });
+
+      // Query Neon Rider best runs dynamically
+      const qRider = query(
+        collection(db, "games_rider"),
+        where("playerId", "==", player.uid),
+        where("status", "==", "finished")
+      );
+      const snapRider = await getDocs(qRider);
+      let neonLoopBest: number | null = null;
+      let gravityDropBest: number | null = null;
+      let endlessGridBest: number | null = null;
+
+      snapRider.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        const trackId = data.trackId;
+        if (trackId === "neon-loop") {
+          const t = data.time;
+          if (t != null && (neonLoopBest === null || t < neonLoopBest)) {
+            neonLoopBest = t;
+          }
+        } else if (trackId === "gravity-drop") {
+          const t = data.time;
+          if (t != null && (gravityDropBest === null || t < gravityDropBest)) {
+            gravityDropBest = t;
+          }
+        } else if (trackId === "endless-grid") {
+          const s = data.score;
+          if (s != null && (endlessGridBest === null || s > endlessGridBest)) {
+            endlessGridBest = s;
+          }
+        }
+      });
+
+      setSelectedPlayerRiderStats({
+        "neon-loop": neonLoopBest,
+        "gravity-drop": gravityDropBest,
+        "endless-grid": endlessGridBest
+      });
     } catch (error) {
-      console.error("Error fetching player racing best times:", error);
+      console.error("Error fetching player racing best times/rider stats:", error);
     } finally {
       setIsLoadingTimes(false);
     }
@@ -481,6 +525,31 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Neon Rider Card */}
+              <div 
+                onClick={() => navigate("/rider")}
+                className="group relative bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 overflow-hidden cursor-pointer hover:border-rose-500/50 dark:hover:border-rose-500/50 transition-all duration-300 hover:shadow-2xl hover:shadow-rose-500/10 hover:-translate-y-1 col-span-1 sm:col-span-2"
+              >
+                <div className="absolute top-0 right-0 p-6 opacity-5 dark:opacity-20 transform group-hover:scale-110 group-hover:-rotate-12 transition-transform duration-500">
+                  <Sparkles className="w-32 h-32 text-rose-500" />
+                </div>
+                <div className="relative z-10">
+                  <div className="w-16 h-16 bg-rose-500/10 dark:bg-rose-500/20 rounded-2xl flex items-center justify-center mb-6 text-rose-600 dark:text-rose-400 shadow-inner">
+                    <Sparkles className="w-8 h-8" />
+                  </div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Neon Rider Elite</h3>
+                    <span className="px-2.5 py-0.5 bg-rose-500/10 text-rose-500 border border-rose-500/20 text-[10px] font-black rounded-full uppercase tracking-wider animate-pulse">NEU</span>
+                  </div>
+                  <p className="text-slate-500 dark:text-slate-400 mb-8 line-clamp-3 font-medium">
+                    Das ultimative 2D-Physik-Stunt-Spiel. Schlage waghalsige Saltos, löse Zeitlupen-Effekte aus und dominiere die weltweiten Leaderboards auf abwechslungsreichen Strecken und im Endless-Grid!
+                  </p>
+                  <div className="flex items-center text-sm font-bold text-rose-600 dark:text-rose-400 uppercase tracking-widest group-hover:translate-x-2 transition-transform">
+                    Spielen <Gamepad2 className="w-5 h-5 ml-2" />
+                  </div>
+                </div>
+              </div>
+
             </div>
 
             {/* Right Column: Online Players Sidebar (4 of 12 columns) */}
@@ -560,6 +629,7 @@ export default function Dashboard() {
               onClick={() => {
                 setSelectedPlayer(null);
                 setSelectedPlayerTimes(null);
+                setSelectedPlayerRiderStats(null);
               }}
               className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
             >
@@ -726,6 +796,56 @@ export default function Dashboard() {
                     <span className="font-extrabold text-slate-900 dark:text-white">Drift Canyon</span>
                     <span className="font-black text-2xl text-slate-800 dark:text-emerald-400 tracking-tight mt-1">
                       {selectedPlayerTimes ? formatMs(selectedPlayerTimes["drift-canyon"]) : "--:--"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Neon Rider Bestleistungen Section */}
+            <div className="mt-6">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-rose-500" />
+                Neon Rider Bestleistungen (Solo)
+              </h3>
+              
+              {isLoadingTimes ? (
+                <div className="flex items-center justify-center py-6 bg-slate-50 dark:bg-slate-950/30 border border-slate-100 dark:border-slate-800 rounded-2xl">
+                  <div className="w-6 h-6 border-2 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="ml-3 text-sm text-slate-500 dark:text-slate-400 font-medium">Lade Bestleistungen...</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-1.5 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-3 opacity-[0.03] pointer-events-none">
+                      <CircleDot className="w-16 h-16 text-rose-500/10" />
+                    </div>
+                    <span className="text-[10px] uppercase font-black tracking-widest text-rose-500">Looping Valley</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white">Neon Loop</span>
+                    <span className="font-black text-2xl text-slate-800 dark:text-rose-400 tracking-tight mt-1">
+                      {selectedPlayerRiderStats ? formatMs(selectedPlayerRiderStats["neon-loop"]) : "--:--"}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-1.5 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-3 opacity-[0.03] pointer-events-none">
+                      <Milestone className="w-16 h-16 text-rose-500/10" />
+                    </div>
+                    <span className="text-[10px] uppercase font-black tracking-widest text-rose-500">Gravity Leap</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white">Gravity Drop</span>
+                    <span className="font-black text-2xl text-slate-800 dark:text-rose-400 tracking-tight mt-1">
+                      {selectedPlayerRiderStats ? formatMs(selectedPlayerRiderStats["gravity-drop"]) : "--:--"}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-1.5 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-3 opacity-[0.03] pointer-events-none">
+                      <Sparkles className="w-16 h-16 text-rose-500/10" />
+                    </div>
+                    <span className="text-[10px] uppercase font-black tracking-widest text-rose-500">Endless Grid</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white">Highscore</span>
+                    <span className="font-black text-2xl text-slate-800 dark:text-rose-400 tracking-tight mt-1">
+                      {selectedPlayerRiderStats && selectedPlayerRiderStats["endless-grid"] !== null ? `${selectedPlayerRiderStats["endless-grid"]} pts` : "---"}
                     </span>
                   </div>
                 </div>
